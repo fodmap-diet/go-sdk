@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	google "google.golang.org/appengine"
 )
 
 const (
@@ -39,7 +41,7 @@ func downloadFile(filename string, url string) error {
 	return err
 }
 
-func downloadRequired(filename string) bool {
+func fileDownloadRequired(filename string) bool {
 	required := false
 	stat, err := os.Stat(filename)
 	if os.IsNotExist(err) {
@@ -71,24 +73,54 @@ func parseFile(filename string) (map[string]*Properties, error) {
 }
 
 func SearchItem(name string) (*Properties, error) {
+	var err error
+
 	// Download the file
 	filename := string(name[0]) + ".json"
 
-	// download if required
-	if downloadRequired(filename) {
-		fileurl := BASKET_REPO + filename
-		err := downloadFile(filename, fileurl)
+	var items map[string]*Properties
+
+	// Check if running in app engine
+	if google.IsAppEngine() || google.IsDevAppServer() {
+		mlock()
+
+		// download file if required
+		if mfileDownloadRequired(filename) {
+			fileurl := BASKET_REPO + filename
+			err = downloadMfile(filename, fileurl)
+			if err != nil {
+				log.Println(err.Error())
+				munlock()
+				return nil, Failed
+			}
+		}
+
+		// parse json file to items
+		items, err = parseMfile(filename)
+		if err != nil {
+			log.Println(err.Error())
+			munlock()
+			return nil, Failed
+		}
+
+		munlock()
+	} else {
+		// download file if required
+		if fileDownloadRequired(filename) {
+			fileurl := BASKET_REPO + filename
+			err = downloadFile(filename, fileurl)
+			if err != nil {
+				log.Println(err.Error())
+				return nil, Failed
+			}
+		}
+
+		// parse json file to items
+		items, err = parseFile(filename)
 		if err != nil {
 			log.Println(err.Error())
 			return nil, Failed
 		}
-	}
-
-	// parse json file to items
-	items, err := parseFile(filename)
-	if err != nil {
-		log.Println(err.Error())
-		return nil, Failed
 	}
 
 	// get the item
